@@ -24,51 +24,23 @@
     if (msg.mode === "toggleHover") {
       hoverEnabled = !hoverEnabled;
       removeHoverCard();
-      if (hoverEnabled) {
-        renderPanel({
-          title: "Universal Hover Scanner",
-          host: location.hostname.replace(/^www\./, ""),
-          intent: "scanner enabled",
-          flags: ["hover scanner active"],
-          summary: "Hover over meaningful text, titles, links, labels, form fields, or cards.",
-          action: "Point at anything confusing. The crab will scan nearby text instead of relying on website-specific selectors.",
-          crab: "Scanner claws online. I read what you point at, not what the website pretends is tidy."
-        });
-      } else {
-        renderPanel({
-          title: "Universal Hover Scanner",
-          host: location.hostname.replace(/^www\./, ""),
-          intent: "scanner disabled",
-          flags: ["hover scanner paused"],
-          summary: "Hover commentary is paused.",
-          action: "Use the extension popup to turn hover scanning on again.",
-          crab: "Crab goes into shell. Peaceful, but less nosy."
-        });
-      }
       return;
     }
 
     runCrab(msg.mode || "explain", true);
   });
 
+  function clean(text, max = 1200) {
+    return String(text || "").replace(/\s+/g, " ").trim().slice(0, max);
+  }
+
   function textOf(selector, root = document) {
     const el = root.querySelector(selector);
     return el ? clean(el.innerText || el.textContent || "") : "";
   }
 
-  function clean(text, max = 1200) {
-    return String(text || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, max);
-  }
-
   function align() {
-    const title =
-      textOf("h1") ||
-      textOf("#title h1") ||
-      document.title ||
-      textOf("title");
+    const title = textOf("h1") || textOf("#title h1") || document.title || textOf("title");
 
     const metaDescription =
       document.querySelector('meta[name="description"]')?.content ||
@@ -97,10 +69,6 @@
       .filter(x => x.name || x.required)
       .slice(0, 80);
 
-    // v05: stronger page reader. Old-school sites (laut.de style) often hide the useful
-    // article/card text inside #content/.content/.news boxes, while modern sites use
-    // main/article/[role=main]. We harvest visible chunks from all of them, then fall
-    // back to body text. This makes the bottom-right crab less blind than document.body alone.
     const visibleText = getVisiblePageText();
     const pageShape = detectPageShape(visibleText, buttons, labels, forms, host);
     return { title, metaDescription, url, host, buttons, labels, forms, visibleText, pageShape };
@@ -131,11 +99,11 @@
       });
     }
 
-    // Old portals and music pages sometimes expose the meaningful page map mostly as links.
-    const linkMap = [...document.querySelectorAll("a")].map(a => clean(
-      [a.innerText, a.getAttribute("title"), a.getAttribute("aria-label")].filter(Boolean).join(" "),
-      140
-    )).filter(t => t && t.length > 2).slice(0, 120).join(" | ");
+    const linkMap = [...document.querySelectorAll("a")]
+      .map(a => clean([a.innerText, a.getAttribute("title"), a.getAttribute("aria-label")].filter(Boolean).join(" "), 140))
+      .filter(t => t && t.length > 2)
+      .slice(0, 120)
+      .join(" | ");
 
     if (linkMap.length > 80) chunks.push("VISIBLE LINKS: " + linkMap);
 
@@ -154,11 +122,13 @@
 
   function detectPageShape(text, buttons, labels, forms, host) {
     const hay = [text, buttons.join(" "), labels.join(" ")].join(" ").toLowerCase();
+
     const germanMusicWords = [
       "kritik", "rezension", "album", "albums", "song", "songs", "band", "bands",
       "künstler", "kuenstler", "konzert", "konzerte", "charts", "meilenstein",
       "laut.de", "besser wird metal", "neueste kommentare", "artist a-z", "liedtext"
     ];
+
     const localSiteWords = ["can or not", "singlish", "cothink", "sg mode", "crab remembers", "better input"];
 
     return {
@@ -281,15 +251,9 @@
   }
 
   function roastify(d, fallback) {
-    if (d.flags.includes("high drama framing")) {
-      return "Wah, headline training for Olympic overreaction. Content may still be useful, but the packaging is wearing fireworks.";
-    }
-    if (d.flags.includes("bureaucratic form friction")) {
-      return "This form has the energy of five departments sharing one braincell through dropdown menus.";
-    }
-    if (d.flags.includes("conversion pressure")) {
-      return "The page is smiling very nicely while reaching for your card.";
-    }
+    if (d.flags.includes("high drama framing")) return "Wah, headline training for Olympic overreaction. Content may still be useful, but the packaging is wearing fireworks.";
+    if (d.flags.includes("bureaucratic form friction")) return "This form has the energy of five departments sharing one braincell through dropdown menus.";
+    if (d.flags.includes("conversion pressure")) return "The page is smiling very nicely while reaching for your card.";
     return fallback;
   }
 
@@ -308,7 +272,6 @@
     return "Detected: " + d.flags.join(", ") + ". Treat these as attention/friction signals, not automatic proof of bad intent.";
   }
 
-  // UNIVERSAL HOVER ENGINE
   function installUniversalHover() {
     if (document.documentElement.dataset.crabosUniversalHover === "yes") return;
     document.documentElement.dataset.crabosUniversalHover = "yes";
@@ -328,8 +291,6 @@
     hoverTimer = setTimeout(() => {
       const probe = document.elementFromPoint(event.clientX, event.clientY);
       if (!probe) return;
-
-      // Ignore CrabOS itself. elementFromPoint is stronger than mouseover on React-heavy pages.
       if (probe.closest?.(`#${CRABOS_ID}, #${CRABOS_MINI_ID}, #${CRABOS_HOVER_ID}`)) return;
 
       const target = findMeaningfulHoverTarget(probe);
@@ -366,7 +327,6 @@
   function findMeaningfulHoverTarget(node) {
     if (!(node instanceof Element)) return null;
 
-    // Prefer semantic / clickable / text-bearing blocks. This works on messy sites too.
     return node.closest(
       "a, button, label, summary, h1, h2, h3, h4, h5, h6, article, section, li, p, blockquote, figcaption, td, th, [role='button'], [role='link'], [aria-label], [title], div, span"
     );
@@ -377,17 +337,14 @@
 
     const candidates = [];
 
-    // 1. Attributes first: often cleaner than visible DOM text.
     for (const attr of ["aria-label", "title", "alt", "placeholder"]) {
       const value = clean(el.getAttribute(attr) || "", 240);
       if (value) candidates.push({ text: value, element: el, kind: attr });
     }
 
-    // 2. Link text / heading text / direct inner text.
     const ownText = clean(el.innerText || el.textContent || "", 360);
     if (ownText) candidates.push({ text: ownText, element: el, kind: el.tagName.toLowerCase() });
 
-    // 3. Walk upward to capture card-style snippets, but avoid swallowing the whole page.
     let cur = el.parentElement;
     let depth = 0;
     while (cur && depth < 4) {
@@ -399,7 +356,6 @@
       depth++;
     }
 
-    // 4. Pick the most useful compact text.
     const filtered = candidates
       .map(c => ({ ...c, text: normalizeHoverText(c.text) }))
       .filter(c => c.text.length >= 12)
@@ -425,13 +381,13 @@
   }
 
   function scoreHoverText(text) {
-    let score = Math.min(text.length, 260);
-    if (/[?!]/.test(text)) score += 25;
-    if (/\b(how|why|what|guide|review|kritik|news|album|song|video|course|upload|certification|deadline|price|buy)\b/i.test(text)) score += 30;
-    if (/\b(shocking|secret|exposed|urgent|warning|sterben|retten|gelogen|beweise|katastrophe|skandal|confusing)\b/i.test(text)) score += 45;
-    if (text.length > 360) score -= 80;
-    return score;
-  }
+  let score = Math.min(text.length, 260);
+  if (/[?!]/.test(text)) score += 25;
+  if (/\b(how|why|what|guide|review|kritik|news|album|song|video|course|upload|certification|deadline|price|buy)\b/i.test(text) && !/\bpreview\b/i.test(text)) score += 30;
+  if (/\b(shocking|secret|exposed|urgent|warning|sterben|retten|gelogen|beweise|katastrophe|skandal|confusing)\b/i.test(text)) score += 45;
+  if (text.length > 360) score -= 80;
+  return score;
+}
 
   function analyseHoverText(text, kind) {
     const t = clean(text, 420);
@@ -507,15 +463,15 @@
       crab = "Wallet antenna up.";
     }
 
-    if (/kritik|album|song|band|konzert|review|rezension/.test(lower)) {
+    if (!/\bpreview\b/i.test(lower) && /\b(kritik|album|song|band|konzert|review|rezension)\b/i.test(lower)) {
       intent = "music / review item";
       read = "This appears to be music journalism, a review, artist page, or album listing.";
       action = "Click if you want criticism/context. Ignore if you only need the song fast.";
       crab = "German music-page flea market detected. At least the text has rhythm.";
     }
 
-    if (lower.includes("ai") || lower.includes("chatgpt")) {
-      read += " AI topic detected.";
+    if (/\b(ai|chatgpt|openai|llm)\b/i.test(lower)) {
+      read += " This appears to involve AI tools or prompts.";
       action += " Check whether it shows real examples or only big claims.";
     }
 
@@ -554,8 +510,6 @@
     `;
   }
 
-  // UNIVERSAL INPUT INTENT ENGINE
-  // v06 patch: hover reads visible wrappers; this reads the focused input/editor.
   let lastInputText = "";
   let lastInputEl = null;
   let inputPollTimer = null;
@@ -706,16 +660,28 @@
     const name = el.getAttribute("name");
     let label = "";
 
-    if (id && window.CSS && CSS.escape) label = clean(document.querySelector(`label[for="${CSS.escape(id)}"]`)?.innerText || "", 160);
+    if (id && window.CSS && CSS.escape) {
+      label = clean(document.querySelector(`label[for="${CSS.escape(id)}"]`)?.innerText || "", 160);
+    }
+
     if (!label && labelled) {
-      label = labelled.split(/\s+/).map(x => clean(document.getElementById(x)?.innerText || "", 80)).filter(Boolean).join(" ");
+      label = labelled
+        .split(/\s+/)
+        .map(x => clean(document.getElementById(x)?.innerText || "", 80))
+        .filter(Boolean)
+        .join(" ");
     }
 
     if (!label) {
       const wrapper = el.closest?.("label, [aria-label], [data-testid], [class]");
       const wrapperText = clean(wrapper?.innerText || wrapper?.getAttribute?.("aria-label") || "", 160);
-      const rawValue = ("value" in el && typeof el.value === "string") ? clean(el.value, 160) : clean(el.innerText || el.textContent || "", 160);
-      if (wrapperText && wrapperText.length < 140 && wrapperText !== rawValue) label = wrapperText;
+      const rawValue = ("value" in el && typeof el.value === "string")
+        ? clean(el.value, 160)
+        : clean(el.innerText || el.textContent || "", 160);
+
+      if (wrapperText && wrapperText.length < 140 && wrapperText !== rawValue) {
+        label = wrapperText;
+      }
     }
 
     return clean(label || aria || placeholder || name || el.getAttribute("data-testid") || el.tagName, 180);
@@ -725,6 +691,7 @@
     const type = (el.getAttribute?.("type") || "").toLowerCase();
     const isSecret = type === "password" || /password|passcode|otp|token|secret/i.test(label || "");
     const lower = [value, label, type, el.getAttribute?.("role") || ""].join(" ").toLowerCase();
+
     let intent = "empty or neutral input";
     let comment = "🦀 Field detected. Type clearly and I will judge the intention, not your soul.";
     let suggestion = "";
@@ -818,6 +785,7 @@
       <div style="margin-top:6px;"><span class="crabos-hover-label">Crab:</span> ${escapeHtml(a.crab)}</div>
       <div style="margin-top:6px;color:#aaa;font-size:11px;">Source: ${escapeHtml(a.kind)} · ${escapeHtml(a.text.slice(0, 110))}${a.text.length > 110 ? "…" : ""}</div>
     `;
+
     document.documentElement.appendChild(card);
     positionHover(card, x, y);
   }
@@ -830,6 +798,7 @@
 
   function positionHover(card, x, y) {
     if (!card) return;
+
     const pad = 14;
     let left = x + 18;
     let top = y + 18;
@@ -853,10 +822,11 @@
     const diagnosis = differentiate(snapshot, mode);
     const output = stabilise(snapshot, diagnosis, mode);
 
-    // v05: on explicit mini-crab click (force=true), always show the big readout.
-    // Earlier versions stayed tiny on quiet pages, which made old sites look broken.
-    if (force || diagnosis.isYoutube || mode !== "explain" || diagnosis.flags.length > 0) renderPanel(output);
-    else renderMiniCrab();
+    if (force || diagnosis.isYoutube || mode !== "explain" || diagnosis.flags.length > 0) {
+      renderPanel(output);
+    } else {
+      renderMiniCrab();
+    }
   }
 
   function scheduleRun(mode = "explain", delay = 900, force = false) {
@@ -888,13 +858,16 @@
         </div>
 
         <div class="crabos-section"><div class="crabos-label">Intent</div><div>${escapeHtml(o.intent)}</div></div>
+
         <div class="crabos-section">
           <div class="crabos-label">Signals</div>
           <div>${o.flags.length ? o.flags.map(f => `<span class="crabos-chip">${escapeHtml(f)}</span>`).join("") : "<span class='crabos-chip'>no major flags</span>"}</div>
         </div>
+
         <div class="crabos-section"><div class="crabos-label">Stable Read</div><div>${escapeHtml(o.summary)}</div></div>
         <div class="crabos-section"><div class="crabos-label">Action</div><div>${escapeHtml(o.action)}</div></div>
         <div class="crabos-section"><div class="crabos-label">Crab Commentary</div><div>${escapeHtml(o.crab)}</div></div>
+
         <div class="crabos-section">
           <div id="crabos-hover-read">
             <b>Hover Read</b><br>
@@ -906,6 +879,7 @@
     `;
 
     document.documentElement.appendChild(panel);
+
     panel.querySelector(".crabos-close").addEventListener("click", () => {
       panel.remove();
       renderMiniCrab();
@@ -949,3 +923,4 @@
     setTimeout(renderMiniCrab, 1200);
   }
 })();
+
