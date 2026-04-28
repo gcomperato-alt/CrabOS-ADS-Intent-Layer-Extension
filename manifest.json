@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "CrabOS Intent Layer",
+  "version": "0.6.0",
+  "description": "ADS-style universal hover engine with deep input intent scanner for React/contenteditable forms.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_title": "CrabOS",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "style.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
