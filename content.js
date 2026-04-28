@@ -97,10 +97,6 @@
       .filter(x => x.name || x.required)
       .slice(0, 80);
 
-    // v05: stronger page reader. Old-school sites (laut.de style) often hide the useful
-    // article/card text inside #content/.content/.news boxes, while modern sites use
-    // main/article/[role=main]. We harvest visible chunks from all of them, then fall
-    // back to body text. This makes the bottom-right crab less blind than document.body alone.
     const visibleText = getVisiblePageText();
     const pageShape = detectPageShape(visibleText, buttons, labels, forms, host);
     return { title, metaDescription, url, host, buttons, labels, forms, visibleText, pageShape };
@@ -131,7 +127,6 @@
       });
     }
 
-    // Old portals and music pages sometimes expose the meaningful page map mostly as links.
     const linkMap = [...document.querySelectorAll("a")].map(a => clean(
       [a.innerText, a.getAttribute("title"), a.getAttribute("aria-label")].filter(Boolean).join(" "),
       140
@@ -308,7 +303,6 @@
     return "Detected: " + d.flags.join(", ") + ". Treat these as attention/friction signals, not automatic proof of bad intent.";
   }
 
-  // UNIVERSAL HOVER ENGINE
   function installUniversalHover() {
     if (document.documentElement.dataset.crabosUniversalHover === "yes") return;
     document.documentElement.dataset.crabosUniversalHover = "yes";
@@ -329,7 +323,6 @@
       const probe = document.elementFromPoint(event.clientX, event.clientY);
       if (!probe) return;
 
-      // Ignore CrabOS itself. elementFromPoint is stronger than mouseover on React-heavy pages.
       if (probe.closest?.(`#${CRABOS_ID}, #${CRABOS_MINI_ID}, #${CRABOS_HOVER_ID}`)) return;
 
       const target = findMeaningfulHoverTarget(probe);
@@ -366,7 +359,6 @@
   function findMeaningfulHoverTarget(node) {
     if (!(node instanceof Element)) return null;
 
-    // Prefer semantic / clickable / text-bearing blocks. This works on messy sites too.
     return node.closest(
       "a, button, label, summary, h1, h2, h3, h4, h5, h6, article, section, li, p, blockquote, figcaption, td, th, [role='button'], [role='link'], [aria-label], [title], div, span"
     );
@@ -377,17 +369,14 @@
 
     const candidates = [];
 
-    // 1. Attributes first: often cleaner than visible DOM text.
     for (const attr of ["aria-label", "title", "alt", "placeholder"]) {
       const value = clean(el.getAttribute(attr) || "", 240);
       if (value) candidates.push({ text: value, element: el, kind: attr });
     }
 
-    // 2. Link text / heading text / direct inner text.
     const ownText = clean(el.innerText || el.textContent || "", 360);
     if (ownText) candidates.push({ text: ownText, element: el, kind: el.tagName.toLowerCase() });
 
-    // 3. Walk upward to capture card-style snippets, but avoid swallowing the whole page.
     let cur = el.parentElement;
     let depth = 0;
     while (cur && depth < 4) {
@@ -399,7 +388,6 @@
       depth++;
     }
 
-    // 4. Pick the most useful compact text.
     const filtered = candidates
       .map(c => ({ ...c, text: normalizeHoverText(c.text) }))
       .filter(c => c.text.length >= 12)
@@ -461,7 +449,7 @@
       "price", "deal", "angebot"
     ];
 
-    const question = /\?|why|what|how|wie|warum|was|wieso/.test(lower);
+    const question = /\?/.test(lower) || /^(why|what|how|wie|warum|was|wieso)\b/i.test(text.trim());
     const dramaHits = drama.filter(w => lower.includes(w));
     const tutorialHits = tutorial.filter(w => lower.includes(w));
     const formHits = form.filter(w => lower.includes(w));
@@ -587,31 +575,40 @@
     const value = clean(el.value || el.innerText || el.textContent || "", 420);
     const label = getInputLabel(el);
     const analysis = analyseInputIntent(value, label, el);
+    const rewritten = analysis.suggestion || crabRewrite(value, label, el);
+    const canApplyRewrite = rewritten && rewritten !== value && !isSensitiveInput(el);
 
-   const rewritten = crabRewrite(value);
+    box.innerHTML = `
+      <b>Input Intent</b><br>
+      <span>${escapeHtml(label || "active input field")}</span><br><br>
 
-   const rewritten = crabRewrite(value);
+      <b>Detected</b><br>
+      ${escapeHtml(analysis.intent)}<br><br>
 
-box.innerHTML = `
-  <b>Input Intent</b><br>
-  <span>${escapeHtml(label || "active input field")}</span><br><br>
+      <b>Crab Says</b><br>
+      ${analysis.comment}<br><br>
 
-  <b>Detected</b><br>
-  ${escapeHtml(analysis.intent)}<br><br>
+      <b>Optimized Input</b><br>
+      <span style="color:#00ff88;">${escapeHtml(rewritten || "Type something and I will tidy the intent.")}</span>
 
-  <b>Crab Says</b><br>
-  ${analysis.comment}<br><br>
+      ${
+        canApplyRewrite
+          ? `<br><br>
+             <button id="crab-rewrite-btn" type="button">✏️ Apply Rewrite</button>`
+          : ""
+      }
+    `;
 
-  <b>Optimized Input</b><br>
-  <span style="color:#00ff88;">${escapeHtml(rewritten)}</span>
-
-  ${
-    rewritten !== value
-      ? `<br><br>
-         <button id="crab-rewrite-btn">✏️ Apply Rewrite</button>`
-      : ""
+    const rewriteBtn = box.querySelector("#crab-rewrite-btn");
+    if (rewriteBtn) {
+      rewriteBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        applyRewriteToInput(el, rewritten);
+        updateCrabPanelForInput(el);
+      });
+    }
   }
-`;
 
   function getInputLabel(el) {
     const id = el.getAttribute("id");
@@ -628,28 +625,59 @@ box.innerHTML = `
 
     return clean(label || aria || placeholder || name || el.tagName, 180);
   }
-  // =============================
-// CRABOS REWRITE ENGINE (PATCH)
-// =============================
-function crabRewrite(value) {
-  const v = clean(value, 300);
 
-  if (!v) return "";
-
-  if (/i\s+wan(t)?\s+work|anything\s+can|any job/i.test(v)) {
-    return "Looking for entry-level admin, service, or operations roles in Singapore. Available immediately and open to training.";
+  function isSensitiveInput(el) {
+    const lower = [el.type || "", el.name || "", el.id || "", el.getAttribute("autocomplete") || ""].join(" ").toLowerCase();
+    return /password|passcode|otp|one-time|token|secret|card|credit|cvv|cvc/.test(lower);
   }
 
-  if (v.length < 20) {
-    return v + " (add role, context, or goal)";
+  function applyRewriteToInput(el, rewritten) {
+    if (!el || !rewritten || isSensitiveInput(el)) return;
+
+    if (el.isContentEditable) {
+      el.focus();
+      el.textContent = rewritten;
+    } else if ("value" in el) {
+      el.focus();
+      el.value = rewritten;
+    }
+
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertReplacementText", data: rewritten }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  if (/\?/.test(v)) {
-    return "Provide a clear, direct answer to: " + v;
-  }
+  function crabRewrite(value, label = "", el = null) {
+    const v = clean(value, 300);
+    const context = [label, el?.type || "", location.hostname].join(" ").toLowerCase();
 
-  return v;
-}
+    if (!v) return "";
+
+    if (/password|otp|token|secret|card|credit|cvv|cvc/.test(context)) {
+      return "";
+    }
+
+    if (/i\s+wan(t)?\s+work|i\s+want\s+work|anything\s+can|any job|can live|need job/i.test(v)) {
+      return "Looking for entry-level admin, service, or operations roles in Singapore. Available immediately and open to training.";
+    }
+
+    if (/jobstreet|jobsdb|mycareersfuture|linkedin|indeed|resume|cv|cover letter|profile|candidate|application/.test(context)) {
+      return refineJobInput(v);
+    }
+
+    if (location.hostname.includes("chatgpt") && /\?/.test(v)) {
+      return "Answer this clearly and practically. Use Singapore context where relevant. Question: " + v;
+    }
+
+    if (/\?/.test(v)) {
+      return "Provide a clear, direct answer to: " + v;
+    }
+
+    if (v.length < 20) {
+      return v + " (add role, context, or goal)";
+    }
+
+    return v;
+  }
 
   function analyseInputIntent(value, label, el) {
     const lower = [value, label, el.type || ""].join(" ").toLowerCase();
@@ -765,8 +793,6 @@ function crabRewrite(value) {
     const diagnosis = differentiate(snapshot, mode);
     const output = stabilise(snapshot, diagnosis, mode);
 
-    // v05: on explicit mini-crab click (force=true), always show the big readout.
-    // Earlier versions stayed tiny on quiet pages, which made old sites look broken.
     if (force || diagnosis.isYoutube || mode !== "explain" || diagnosis.flags.length > 0) renderPanel(output);
     else renderMiniCrab();
   }
@@ -780,49 +806,91 @@ function crabRewrite(value) {
     document.getElementById(CRABOS_ID)?.remove();
   }
 
-  function renderPanel(o) {
-    document.getElementById(CRABOS_MINI_ID)?.remove();
-    document.getElementById(CRABOS_ID)?.remove();
+function renderPanel(o) {
+  document.getElementById(CRABOS_MINI_ID)?.remove();
+  document.getElementById(CRABOS_ID)?.remove();
 
-    const panel = document.createElement("div");
-    panel.id = CRABOS_ID;
+  const panel = document.createElement("div");
+  panel.id = CRABOS_ID;
 
-    panel.innerHTML = `
-      <div class="crabos-head">
-        <span>🦀 CrabOS Intent Layer</span>
+  panel.innerHTML = `
+    <div class="crabos-head">
+      <span>🦀 CrabOS Intent Layer</span>
+      <div>
+        <button class="crabos-hover-toggle" title="Toggle hover">
+          Hover ${hoverEnabled ? "ON" : "OFF"}
+        </button>
         <button class="crabos-close" title="Close">×</button>
       </div>
-      <div class="crabos-body">
-        <div class="crabos-section">
-          <div class="crabos-label">Page</div>
-          <div>${escapeHtml(o.title)}</div>
-          <div style="color:#aaa;font-size:12px;">${escapeHtml(o.host)}</div>
-        </div>
+    </div>
 
-        <div class="crabos-section"><div class="crabos-label">Intent</div><div>${escapeHtml(o.intent)}</div></div>
-        <div class="crabos-section">
-          <div class="crabos-label">Signals</div>
-          <div>${o.flags.length ? o.flags.map(f => `<span class="crabos-chip">${escapeHtml(f)}</span>`).join("") : "<span class='crabos-chip'>no major flags</span>"}</div>
-        </div>
-        <div class="crabos-section"><div class="crabos-label">Stable Read</div><div>${escapeHtml(o.summary)}</div></div>
-        <div class="crabos-section"><div class="crabos-label">Action</div><div>${escapeHtml(o.action)}</div></div>
-        <div class="crabos-section"><div class="crabos-label">Crab Commentary</div><div>${escapeHtml(o.crab)}</div></div>
-        <div class="crabos-section">
-          <div id="crabos-hover-read">
-            <b>Hover Read</b><br>
-            Hover over page text and CrabOS will inspect it. Click or type in an input field and CrabOS will read the intention.
-          </div>
+    <div class="crabos-body">
+      <div class="crabos-section">
+        <div class="crabos-label">Page</div>
+        <div>${escapeHtml(o.title)}</div>
+        <div style="color:#aaa;font-size:12px;">${escapeHtml(o.host)}</div>
+      </div>
+
+      <div class="crabos-section">
+        <div class="crabos-label">Intent</div>
+        <div>${escapeHtml(o.intent)}</div>
+      </div>
+
+      <div class="crabos-section">
+        <div class="crabos-label">Signals</div>
+        <div>
+          ${
+            o.flags.length
+              ? o.flags.map(f => `<span class="crabos-chip">${escapeHtml(f)}</span>`).join("")
+              : "<span class='crabos-chip'>no major flags</span>"
+          }
         </div>
       </div>
-      <div class="crabos-footer">Universal hover scanner + input intent scanner active. Reads visible text only. No ad blocking or platform tampering.</div>
-    `;
 
-    document.documentElement.appendChild(panel);
-    panel.querySelector(".crabos-close").addEventListener("click", () => {
-      panel.remove();
-      renderMiniCrab();
-    });
-  }
+      <div class="crabos-section">
+        <div class="crabos-label">Stable Read</div>
+        <div>${escapeHtml(o.summary)}</div>
+      </div>
+
+      <div class="crabos-section">
+        <div class="crabos-label">Action</div>
+        <div>${escapeHtml(o.action)}</div>
+      </div>
+
+      <div class="crabos-section">
+        <div class="crabos-label">Crab Commentary</div>
+        <div>${escapeHtml(o.crab)}</div>
+      </div>
+
+      <div class="crabos-section">
+        <div id="crabos-hover-read">
+          <b>Hover Read</b><br>
+          Hover over page text and CrabOS will inspect it.<br>
+          Click or type in an input field and CrabOS will read the intention.
+        </div>
+      </div>
+    </div>
+
+    <div class="crabos-footer">
+      Universal hover scanner + input intent scanner active.
+    </div>
+  `;
+
+  document.documentElement.appendChild(panel);
+
+  // CLOSE BUTTON
+  panel.querySelector(".crabos-close").addEventListener("click", () => {
+    panel.remove();
+    renderMiniCrab();
+  });
+
+  // HOVER TOGGLE BUTTON
+  panel.querySelector(".crabos-hover-toggle").addEventListener("click", () => {
+    hoverEnabled = !hoverEnabled;
+    removeHoverCard();
+    renderPanel(o); // re-render to update ON/OFF label
+  });
+}
 
   function renderMiniCrab() {
     if (document.getElementById(CRABOS_MINI_ID) || document.getElementById(CRABOS_ID)) return;
