@@ -1,194 +1,256 @@
 // =============================
-// CRABOS FULL ENGINE v07 (REBUILT)
+// CRABOS v08 — ACTION ENGINE
 // =============================
 
 (() => {
 
-  const CRABOS_ID = "crabos-panel";
-  const CRABOS_HOVER_ID = "crabos-hover";
-
-  let hoverTimer = null;
-  let lastHoverText = "";
-  let lastMarkedElement = null;
-
-  let inputTimer = null;
-  let lastInputText = "";
-
+  const PANEL_ID = "crabos-panel";
+  let lastInput = "";
+  let lastHover = "";
+  let activeInput = null;
 
   // =============================
   // PANEL
   // =============================
-
   function createPanel() {
-    if (document.getElementById(CRABOS_ID)) return;
+    if (document.getElementById(PANEL_ID)) return;
 
     const panel = document.createElement("div");
-    panel.id = CRABOS_ID;
+    panel.id = PANEL_ID;
 
-    panel.style.position = "fixed";
-    panel.style.bottom = "20px";
-    panel.style.right = "20px";
-    panel.style.width = "280px";
-    panel.style.padding = "12px";
-    panel.style.background = "black";
-    panel.style.color = "white";
-    panel.style.fontSize = "13px";
-    panel.style.borderRadius = "10px";
-    panel.style.zIndex = "999999";
-    panel.style.fontFamily = "Arial";
+    Object.assign(panel.style, {
+      position: "fixed",
+      bottom: "20px",
+      right: "20px",
+      width: "300px",
+      background: "black",
+      color: "white",
+      padding: "12px",
+      borderRadius: "10px",
+      zIndex: 999999,
+      fontSize: "13px",
+      fontFamily: "Arial"
+    });
 
     panel.innerHTML = `
-      <b>🦀 CrabOS</b><br><br>
-      <div id="crab-content">Ready...</div>
+      <b>🦀 CrabOS v08</b><br><br>
+      <div id="crab-mode">Mode: teacher</div><br>
+      <div id="crab-text">Ready...</div><br>
+      <button id="rewrite-btn">✏️ Rewrite</button>
+      <button id="fill-btn">⚡ Autofill</button>
     `;
 
     document.body.appendChild(panel);
+
+    document.getElementById("rewrite-btn").onclick = rewriteInput;
+    document.getElementById("fill-btn").onclick = autoFill;
   }
 
-
   function updatePanel(text) {
-    const el = document.getElementById("crab-content");
+    const el = document.getElementById("crab-text");
     if (el) el.innerHTML = text;
   }
 
+  // =============================
+  // CRAB PERSONALITIES
+  // =============================
+
+  let mode = "teacher";
+
+  function crabSpeak(text) {
+    if (mode === "angry") {
+      return "🦀 This input is weak. Fix it properly.<br>" + text;
+    }
+    if (mode === "recruiter") {
+      return "🦀 As recruiter: clarify role + value.<br>" + text;
+    }
+    return "🦀 " + text;
+  }
 
   // =============================
-  // INTENT DETECTION
+  // DETECT INTENT
   // =============================
 
-  function detectIntent(text) {
+  function detect(text) {
     const t = text.toLowerCase();
 
-    if (/i\s+wan(t)?\s+work|anything\s+can|any job/.test(t))
-      return "job_mess";
+    if (/i\s+wan(t)?\s+work|anything\s+can/.test(t))
+      return "bad_job";
 
-    if (/\bapply\b|\bjob\b|\bresume\b/.test(t))
+    if (/job|apply|resume/.test(t))
       return "job";
 
-    if (/\?|what|how|why/.test(t))
+    if (/\?/.test(t))
       return "question";
-
-    if (text.length < 20)
-      return "fragment";
 
     return "normal";
   }
 
+  // =============================
+  // REWRITE ENGINE (CORE FEATURE)
+  // =============================
 
-  function respond(intent, text) {
+  function rewrite(text) {
 
-    switch(intent) {
+    if (!text) return "";
 
-      case "job_mess":
-        return `🦀 Too vague. Try:<br>
-        "Looking for entry-level admin or service roles in Singapore."`;
-
-      case "job":
-        return "🦀 Job detected. Add role + skills + location.";
-
-      case "question":
-        return "🦀 Question detected. Be more precise.";
-
-      case "fragment":
-        return "🦀 Too short. Add more context.";
-
-      default:
-        return "🦀 Looks fine, but could be clearer.";
+    if (/i\s+wan(t)?\s+work|anything\s+can/.test(text.toLowerCase())) {
+      return "Looking for entry-level roles in admin, service, or operations in Singapore. Open to training and available immediately.";
     }
+
+    if (text.length < 20) {
+      return text + " (please expand with more detail)";
+    }
+
+    if (text.includes("?")) {
+      return "Provide a clear, direct answer to: " + text;
+    }
+
+    return text;
   }
 
+  function rewriteInput() {
+    if (!activeInput) return;
+
+    const val = getValue(activeInput);
+    const newText = rewrite(val);
+
+    setValue(activeInput, newText);
+    updatePanel(crabSpeak("Rewritten ✔"));
+  }
 
   // =============================
-  // UNIVERSAL HOVER ENGINE
+  // AUTO FILL (JOBSTREET DEMO)
+  // =============================
+
+  function autoFill() {
+
+    const fields = document.querySelectorAll("input, textarea");
+
+    fields.forEach(f => {
+      const name = (f.name || f.placeholder || "").toLowerCase();
+
+      if (name.includes("name"))
+        f.value = "Giuliano Comperato";
+
+      if (name.includes("email"))
+        f.value = "example@email.com";
+
+      if (name.includes("job") || name.includes("position"))
+        f.value = "Entry-level admin or service role";
+
+      if (name.includes("description") || name.includes("about"))
+        f.value = "Motivated candidate seeking entry-level opportunities in Singapore with willingness to learn.";
+    });
+
+    updatePanel("🦀 Autofill done ✔");
+  }
+
+  // =============================
+  // INPUT TRACKING
+  // =============================
+
+  document.addEventListener("focusin", (e) => {
+    if (isInput(e.target)) {
+      activeInput = e.target;
+    }
+  });
+
+  document.addEventListener("input", (e) => {
+
+    if (!isInput(e.target)) return;
+
+    activeInput = e.target;
+
+    const val = getValue(e.target);
+
+    if (val === lastInput) return;
+    lastInput = val;
+
+    const intent = detect(val);
+
+    let msg = "";
+
+    if (intent === "bad_job")
+      msg = "Too vague. Click rewrite.";
+    else if (intent === "job")
+      msg = "Job detected. Add skills.";
+    else
+      msg = "Looks fine.";
+
+    updatePanel(crabSpeak(msg));
+
+  });
+
+  function isInput(el) {
+    return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable;
+  }
+
+  function getValue(el) {
+    return el.value || el.innerText || "";
+  }
+
+  function setValue(el, val) {
+    if ("value" in el) el.value = val;
+    else el.innerText = val;
+  }
+
+  // =============================
+  // CHATGPT PROMPT INJECTION
+  // =============================
+
+  function injectChatGPT() {
+
+    if (!location.hostname.includes("chatgpt")) return;
+
+    const box = document.querySelector("textarea");
+
+    if (!box) return;
+
+    box.addEventListener("keydown", (e) => {
+
+      if (e.key === "Enter" && !e.shiftKey) {
+
+        const val = box.value;
+
+        const improved = rewrite(val);
+
+        box.value = improved;
+
+        updatePanel("🦀 Prompt optimized before send");
+      }
+    });
+  }
+
+  // =============================
+  // HOVER ENGINE (STABLE CORE)
   // =============================
 
   document.addEventListener("mousemove", (e) => {
 
-    clearTimeout(hoverTimer);
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el) return;
 
-    hoverTimer = setTimeout(() => {
+    let text = (el.innerText || "").trim();
 
-      const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!text || text.length < 5) return;
+    if (text === lastHover) return;
 
-      if (!el) return;
+    lastHover = text;
 
-      if (el.closest(`#${CRABOS_ID}`)) return;
+    const intent = detect(text);
 
-      let text = (el.innerText || el.textContent || "").trim();
-
-      if (!text || text.length < 3) return;
-
-      if (text === lastHoverText) return;
-      lastHoverText = text;
-
-      if (text.length > 120)
-        text = text.substring(0, 120) + "...";
-
-      const intent = detectIntent(text);
-
-      updatePanel(respond(intent, text));
-
-      mark(el);
-
-    }, 200);
+    if (intent === "question") {
+      updatePanel("🦀 This text is asking something.");
+    }
 
   });
 
-
-  function mark(el) {
-    if (lastMarkedElement && lastMarkedElement !== el)
-      lastMarkedElement.style.outline = "";
-
-    lastMarkedElement = el;
-    el.style.outline = "2px solid red";
-  }
-
-
   // =============================
-  // INPUT SCANNER (THE REAL MAGIC)
-  // =============================
-
-  document.addEventListener("input", (e) => {
-
-    clearTimeout(inputTimer);
-
-    inputTimer = setTimeout(() => {
-
-      const el = e.target;
-
-      if (!isInput(el)) return;
-
-      const value = el.value || el.innerText || "";
-
-      if (value === lastInputText) return;
-      lastInputText = value;
-
-      const intent = detectIntent(value);
-
-      updatePanel(respond(intent, value));
-
-    }, 150);
-
-  });
-
-
-  function isInput(el) {
-    if (!el) return false;
-
-    const tag = el.tagName?.toLowerCase();
-
-    return (
-      tag === "input" ||
-      tag === "textarea" ||
-      el.isContentEditable
-    );
-  }
-
-
-  // =============================
-  // START
+  // INIT
   // =============================
 
   createPanel();
+  injectChatGPT();
 
 })();
